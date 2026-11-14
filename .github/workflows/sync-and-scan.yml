@@ -1,6 +1,7 @@
 name: CRA Compliance Pipeline
 
 # CRA Cyber Resilience Act Compliance
+
 # Syncs with upstream, generates SBOM, scans for vulnerabilities
 on:
   push:
