@@ -1,1 +1,109 @@
-*.patch -text
+# CRA Compliance: Git attributes for firmware repository
+# Optimizes large binary files for GitHub performance
+# See: https://git-scm.com/docs/gitattributes
+
+# ============================================
+# MARK LARGE FILES AS GENERATED
+# Prevents GitHub from processing in code scanning
+# ============================================
+
+# Buildroot download cache (large binary files)
+dl/ linguist-generated=true
+dl/** linguist-generated=true
+dl/** -text
+dl/** -diff
+
+# Output directories (build artifacts)
+output/ linguist-generated=true
+output/** linguist-generated=true
+output/** -text
+output/** -diff
+
+# Toolchain directories
+toolchain/ linguist-generated=true
+toolchain/** linguist-generated=true
+toolchain/** -text
+
+# U-Boot patches (large text files)
+package/all-patches/uboot/ linguist-generated=true
+package/all-patches/uboot/**/*.patch linguist-generated=true
+
+# Linux kernel sources
+linux/ linguist-generated=true
+linux/** linguist-generated=true
+
+# ============================================
+# FILE TYPE SPECIFIC RULES
+# ============================================
+
+# Binary files
+*.bin linguist-generated=true
+*.bin -text
+*.bin -diff
+
+*.img linguist-generated=true
+*.img -text
+*.img -diff
+
+*.iso linguist-generated=true
+*.iso -text
+*.iso -diff
+
+# Archives
+*.tar.gz linguist-generated=true
+*.tar.gz -text
+*.zip linguist-generated=true
+*.zip -text
+
+# Firmware images
+*.fw linguist-generated=true
+*.fw -text
+*.squashfs linguist-generated=true
+*.squashfs -text
+*.jffs2 linguist-generated=true
+*.jffs2 -text
+
+# ============================================
+# TEXT FILES (Normal diff/merge)
+# ============================================
+
+# Source code
+*.c text diff
+*.h text diff
+*.cpp text diff
+*.cc text diff
+*.cxx text diff
+*.hpp text diff
+*.hxx text diff
+
+*.py text diff
+*.js text diff
+*.ts text diff
+*.java text diff
+*.go text diff
+*.rs text diff
+*.rb text diff
+*.php text diff
+*.sh text diff
+
+# Configuration files
+*.yaml text diff
+*.yml text diff
+*.json text diff
+*.toml text diff
+*.ini text diff
+*.cfg text diff
+*.conf text diff
+
+# Documentation
+*.md text diff
+*.txt text diff
+*.rst text diff
+
+# Makefiles
+Makefile text diff
+*.mk text diff
+
+# ============================================
+# END OF FILE
+# ============================================
