@@ -1,5 +1,10 @@
 name: CRA Upstream Sync
 
+# Synchronizes with upstream repository
+# Uses Option B: Manual conflict resolution (no -X flag)
+# This ensures CRA compliance changes are NEVER silently overwritten
+# 3-Stage Workflow: cra-compliance-dev -> cra-compliance-staging -> cra-compliance
+
 on:
   schedule:
     - cron: '0 0 * * 1' # Every Monday at midnight
@@ -16,13 +21,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Sync with upstream
+      - name: Sync with upstream (Option B - Manual Conflict Resolution)
         run: |
           git config --global user.name "CRA Bot"
           git config --global user.email "cra@cra-consulting.com"
           git remote add upstream https://github.com/themactep/thingino-firmware.git
           git fetch upstream
-          git merge upstream/master --no-edit -X theirs
+          
+          # OPTION B: Standard merge without -X flag
+          # This means conflicts MUST be manually resolved
+          # CRA compliance changes will NEVER be silently overwritten
+          git merge upstream/master --no-edit
 
       - name: Create PR to cra-compliance
         uses: peter-evans/create-pull-request@v5
@@ -30,7 +39,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           commit-message: "chore: sync with upstream"
           title: "chore: sync with upstream"
-          body: "Automated sync with upstream repository"
+          body: "Automated sync with upstream repository
+          
+          **Merge Strategy:** Option B (Manual Conflict Resolution)
+          - Conflicts require manual resolution
+          - CRA compliance changes are protected from silent overwrite
+          - Follows 3-stage workflow: dev -> staging -> prod
+          
+          **Action Required:** If this PR has conflicts, they must be resolved manually before merging."
           branch: "cra-sync-$(date +%Y%m%d)"
           base: cra-compliance
           delete-branch: true
