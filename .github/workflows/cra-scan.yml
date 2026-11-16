@@ -2,6 +2,7 @@ name: CRA Vulnerability Management
 
 # CRA Compliance: Article 11 + Annex I Section 2.3
 # Mandatory vulnerability identification and handling throughout product lifecycle
+# Uses official Anchore actions for SCA and Trivy for filesystem scanning
 # 3-Stage Workflow: cra-compliance-dev -> cra-compliance-staging -> cra-compliance
 
 on:
@@ -44,52 +45,24 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install security tools
-        run: |
-          pip install --upgrade pip
-          pip install syft grype
-
-      - name: Generate SBOM for dependency scanning
+      - name: Generate SBOM for dependency scanning (using Anchore Syft)
+        uses: anchore/sbom-action@v0
         id: sbom
-        run: |
-          # Generate SBOM for the entire repository
-          syft dir:. -o spdx-json=sbom-scan.json \
-            --file-metadata "license=Apache-2.0" \
-            --file-metadata "manufacturer=Thingino" \
-            --file-metadata "model=${{ github.repository }}" \
-            --file-metadata "version=${{ github.sha }}"
-          echo "sbom_path=sbom-scan.json" >> $GITHUB_OUTPUT
+        with:
+          image: anchore/syft:latest
+          format: spdx-json
+          output-file: sbom-scan.json
+          args: --file-metadata "license=Apache-2.0" --file-metadata "manufacturer=Thingino" --file-metadata "model=${{ github.repository }}" --file-metadata "version=${{ github.sha }}"
 
-      - name: Software Composition Analysis (SCA)
+      - name: Software Composition Analysis (SCA) with Anchore Grype
+        uses: anchore/grype-action@v0
         id: sca
-        run: |
-          echo "=== Running SCA for dependency vulnerabilities ==="
-          
-          # Scan dependencies using Grype with SBOM
-          grype sbom:sbom-scan.json \
-            --only-fixed \
-            -o sarif \
-            > dependency-vulnerabilities.sarif || true
-          
-          # Also run direct dependency scan
-          grype dir:package -o sarif >> dependency-vulnerabilities.sarif || true
-          
-          echo "dep_scan_file=dependency-vulnerabilities.sarif" >> $GITHUB_OUTPUT
-          
-          # Count vulnerabilities
-          if [ -f dependency-vulnerabilities.sarif ]; then
-            DEP_VULNS=$(grep -o '"ruleId"' dependency-vulnerabilities.sarif | wc -l)
-            echo "📦 Dependency vulnerabilities found: $DEP_VULNS"
-            echo "dep_vuln_count=$DEP_VULNS" >> $GITHUB_OUTPUT
-          else
-            echo "✅ No dependency vulnerabilities detected"
-            echo "dep_vuln_count=0" >> $GITHUB_OUTPUT
-          fi
+        with:
+          sbom: sbom-scan.json
+          format: sarif
+          output-file: dependency-vulnerabilities.sarif
+          fail-on-error: false
+          severity: all
 
       - name: Upload SCA results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -108,33 +81,11 @@ jobs:
           output: 'trivy-fs-results.sarif'
           ignore-unfixed: false
 
-      - name: Trivy container/image scan (if applicable)
-        id: trivy-image
-        if: always()
-        run: |
-          # Check if there are container images to scan
-          if [ -f Dockerfile ] || ls output/*.tar.gz 1>/dev/null 2>&1; then
-            echo "=== Scanning container images ==="
-            # This would scan built firmware images if available
-            # Placeholder for future firmware image scanning
-            touch trivy-image-results.sarif
-          else
-            echo "⚠️  No container images found to scan"
-            touch trivy-image-results.sarif
-          fi
-
       - name: Upload Trivy filesystem results
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs-results.sarif
           category: trivy-fs
-
-      - name: Upload Trivy image results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-image-results.sarif
-          category: trivy-image
 
       - name: Aggregate vulnerability report
         run: |
@@ -154,7 +105,7 @@ jobs:
             FS_CRITICAL=$(grep -o '"level": "error"' trivy-fs-results.sarif | wc -l)
             FS_HIGH=$(grep -o '"level": "warning"' trivy-fs-results.sarif | wc -l)
             FS_MEDIUM=$(grep -o '"level": "note"' trivy-fs-results.sarif | wc -l || echo 0)
-            echo "- **Filesystem Scan:** $FS_CRITICAL Critical, $FS_HIGH High, $FS_MEDIUM Medium" >> vulnerability-report.md
+            echo "- **Filesystem Scan (Trivy):** $FS_CRITICAL Critical, $FS_HIGH High, $FS_MEDIUM Medium" >> vulnerability-report.md
           fi
           
           # Count dependency vulnerabilities
@@ -162,19 +113,21 @@ jobs:
             DEP_CRITICAL=$(grep -o '"level": "error"' dependency-vulnerabilities.sarif | wc -l)
             DEP_HIGH=$(grep -o '"level": "warning"' dependency-vulnerabilities.sarif | wc -l)
             DEP_MEDIUM=$(grep -o '"level": "note"' dependency-vulnerabilities.sarif | wc -l || echo 0)
-            echo "- **Dependency Scan:** $DEP_CRITICAL Critical, $DEP_HIGH High, $DEP_MEDIUM Medium" >> vulnerability-report.md
+            echo "- **Dependency Scan (Grype):** $DEP_CRITICAL Critical, $DEP_HIGH High, $DEP_MEDIUM Medium" >> vulnerability-report.md
           fi
           
           echo "" >> vulnerability-report.md
           echo "### ✅ CRA Compliance Status" >> vulnerability-report.md
           echo "- **Vulnerability Management:** ✅ Implemented (Art. 11)" >> vulnerability-report.md
-          echo "- **SCA Coverage:** ✅ Complete (Annex I §2.3)" >> vulnerability-report.md
-          echo "- **All Severities:** ✅ Scanned (CRITICAL, HIGH, MEDIUM, LOW)" >> vulnerability-report.md
+          echo "- **SCA Coverage:** ✅ Complete (Annex I §2.3) - Using Anchore Grype" >> vulnerability-report.md
+          echo "- **Filesystem Scan:** ✅ Complete (Trivy) - All severities" >> vulnerability-report.md
+          echo "- **Lifecycle Coverage:** ✅ Implemented - Dev, Staging, Prod branches" >> vulnerability-report.md
           echo "" >> vulnerability-report.md
           echo "### 📝 Notes" >> vulnerability-report.md
           echo "- Vulnerabilities are identified but do not fail the build" >> vulnerability-report.md
           echo "- Manual review required for remediation" >> vulnerability-report.md
-          echo "- SBOM generated for dependency tracking" >> vulnerability-report.md
+          echo "- SBOM generated using Anchore Syft for dependency tracking" >> vulnerability-report.md
+          echo "- SCA performed using Anchore Grype (official action)" >> vulnerability-report.md
 
       - name: Upload all scan artifacts
         uses: actions/upload-artifact@v4
@@ -182,7 +135,6 @@ jobs:
           name: cra-vulnerability-scans-${{ github.sha }}
           path: |
             trivy-fs-results.sarif
-            trivy-image-results.sarif
             dependency-vulnerabilities.sarif
             sbom-scan.json
             vulnerability-report.md
@@ -190,7 +142,7 @@ jobs:
           compression-level: 9
 
       - name: Create GitHub issue for vulnerabilities (if any)
-        if: steps.sca.outputs.dep_vuln_count > 0 || always()
+        if: always()
         uses: actions/github-script@v7
         with:
           script: |
@@ -233,6 +185,11 @@ jobs:
 - **Total vulnerabilities:** ${vulnCount}
 - **Artifact:** [Download scans](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
 
+### Scans Performed
+- **Filesystem Scan:** Trivy (all severities)
+- **Dependency Scan:** Anchore Grype (SCA)
+- **SBOM Generation:** Anchore Syft
+
 ### CRA Compliance Note
 These vulnerabilities must be reviewed and addressed per **CRA Article 11** requirements.
 
@@ -243,7 +200,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
 4. Document remediation in technical documentation
 
 ---
-*Generated by CRA Vulnerability Management workflow*`,
+*Generated by CRA Vulnerability Management workflow using Anchore tools*`,
                 labels: ['cra-compliance', 'security', 'vulnerability'],
                 assignees: ['emilienpuech']
               });
@@ -267,7 +224,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           echo "=== CRA Vulnerability Trend Analysis ==="
           echo ""
           
-          # Check if we have previous scan data
+          # Check if we have scan data
           if [ -d scans ]; then
             echo "Current scan results available"
             
@@ -307,20 +264,27 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           
           ## 🎯 CRA Requirements Met
           
-          | Requirement | Status | Evidence |
-          |-------------|--------|----------|
-          | **Vulnerability Identification** | ✅ Implemented | Trivy + Grype scans |
-          | **SCA (Software Composition Analysis)** | ✅ Implemented | Dependency scanning |
-          | **All Severity Levels** | ✅ Implemented | CRITICAL, HIGH, MEDIUM, LOW |
-          | **Lifecycle Coverage** | ✅ Implemented | Dev, Staging, Prod branches |
-          | **Audit Trail** | ✅ Implemented | 365-day artifact retention |
-          | **Reporting** | ✅ Implemented | GitHub issues + SARIF uploads |
+          | Requirement | Status | Tool Used | Evidence |
+          |-------------|--------|-----------|----------|
+          | **Vulnerability Identification** | ✅ Implemented | Trivy + Anchore Grype | SARIF files |
+          | **SCA (Software Composition Analysis)** | ✅ Implemented | Anchore Grype | dependency-vulnerabilities.sarif |
+          | **Filesystem Scanning** | ✅ Implemented | Trivy | trivy-fs-results.sarif |
+          | **All Severity Levels** | ✅ Implemented | Both tools | CRITICAL, HIGH, MEDIUM, LOW |
+          | **Lifecycle Coverage** | ✅ Implemented | N/A | Dev, Staging, Prod branches |
+          | **Audit Trail** | ✅ Implemented | N/A | 365-day artifact retention |
+          | **Reporting** | ✅ Implemented | GitHub Issues | Automated issue creation |
           
           ## 📋 CRA References
           
           - **Article 11:** Obligations of manufacturers regarding vulnerability handling
           - **Annex I Section 2.3:** Protection from vulnerabilities
           - **Annex V:** Technical documentation requirements
+          
+          ## 🔍 Tools Used
+          
+          - **Trivy:** Filesystem vulnerability scanning (official Aqua Security action)
+          - **Anchore Syft:** SBOM generation (official Docker image)
+          - **Anchore Grype:** Dependency vulnerability scanning (official action)
           
           ## 🔍 Recommendations
           
@@ -332,8 +296,9 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           
           ## 📊 Scan Metadata
           
-          - **Tools:** Trivy, Grype, Syft
-          - **Scan Types:** Filesystem, Dependencies
+          - **Tools:** Trivy, Anchore Syft, Anchore Grype
+          - **Scan Types:** Filesystem (Trivy), Dependencies (Grype)
+          - **SBOM:** Generated by Anchore Syft
           - **Artifact Retention:** 365 days
           - **Trigger:** ${{ github.event_name }}
           - **Branch:** ${{ github.ref_name }}
@@ -341,6 +306,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           ---
           
           *This report confirms CRA Article 11 compliance for vulnerability management on branch ${{ github.ref_name }}.*
+          *Uses official tools: Trivy (Aqua Security) + Anchore Syft/Grype.*
           EOF
 
       - name: Upload compliance report

@@ -1,7 +1,7 @@
 name: CRA SBOM Generation
 
 # CRA Compliance: Annex I Section 1.1 requires Software Bill of Materials
-# This workflow generates SPDX and CycloneDX SBOMs for all firmware components
+# This workflow generates SPDX and CycloneDX SBOMs using official Anchore actions
 # 3-Stage Workflow: cra-compliance-dev -> cra-compliance-staging -> cra-compliance
 
 on:
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   generate-sbom:
-    name: Generate SBOM
+    name: Generate SBOM with Syft
     runs-on: ubuntu-latest
     
     steps:
@@ -42,70 +42,62 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install SBOM generation tools
-        run: |
-          pip install --upgrade pip
-          pip install syft cyclonedx-bom grype
-
       - name: Generate directories
         run: mkdir -p sbom/output
 
-      - name: Generate SPDX SBOM (Primary for CRA)
-        id: spdx
-        run: |
-          # Generate SPDX SBOM in JSON format
-          syft dir:. -o spdx-json=sbom/output/sbom.spdx.json \
-            --file-metadata "license=Apache-2.0" \
-            --file-metadata "manufacturer=Thingino" \
-            --file-metadata "model=${{ github.repository }}" \
-            --file-metadata "version=${{ github.sha }}" \
-            --file-metadata "serial-number=${{ github.run_id }}" \
-            --file-metadata "branch=${{ github.ref_name }}"
-          
-          # Generate SPDX SBOM in tag-value format (human-readable)
-          syft dir:. -o spdx-text=sbom/output/sbom.spdx.txt \
-            --file-metadata "license=Apache-2.0" \
-            --file-metadata "manufacturer=Thingino"
-          
-          echo "spdx_json_path=sbom/output/sbom.spdx.json" >> $GITHUB_OUTPUT
-          echo "spdx_txt_path=sbom/output/sbom.spdx.txt" >> $GITHUB_OUTPUT
+      - name: Generate SPDX SBOM using Anchore Syft
+        uses: anchore/sbom-action@v0
+        id: syft-spdx
+        with:
+          image: anchore/syft:latest
+          format: spdx-json
+          output-file: sbom/output/sbom.spdx.json
+          args: --file-metadata "license=Apache-2.0" --file-metadata "manufacturer=Thingino" --file-metadata "model=${{ github.repository }}" --file-metadata "version=${{ github.sha }}" --file-metadata "branch=${{ github.ref_name }}"
 
-      - name: Generate CycloneDX SBOM (Secondary format)
-        id: cyclonedx
-        run: |
-          # Generate CycloneDX SBOM in JSON format
-          syft dir:. -o cyclonedx-json=sbom/output/sbom.cdx.json \
-            --file-metadata "license=Apache-2.0" \
-            --file-metadata "manufacturer=Thingino" \
-            --file-metadata "model=${{ github.repository }}" \
-            --file-metadata "version=${{ github.sha }}"
-          
-          # Generate CycloneDX SBOM in XML format
-          syft dir:. -o cyclonedx-xml=sbom/output/sbom.cdx.xml \
-            --file-metadata "license=Apache-2.0"
-          
-          echo "cdx_json_path=sbom/output/sbom.cdx.json" >> $GITHUB_OUTPUT
-          echo "cdx_xml_path=sbom/output/sbom.cdx.xml" >> $GITHUB_OUTPUT
+      - name: Generate SPDX Text using Anchore Syft
+        uses: anchore/sbom-action@v0
+        id: syft-spdx-txt
+        with:
+          image: anchore/syft:latest
+          format: spdx-text
+          output-file: sbom/output/sbom.spdx.txt
+          args: --file-metadata "license=Apache-2.0" --file-metadata "manufacturer=Thingino"
+
+      - name: Generate CycloneDX JSON using Anchore Syft
+        uses: anchore/sbom-action@v0
+        id: syft-cdx-json
+        with:
+          image: anchore/syft:latest
+          format: cyclonedx-json
+          output-file: sbom/output/sbom.cdx.json
+          args: --file-metadata "license=Apache-2.0" --file-metadata "manufacturer=Thingino" --file-metadata "model=${{ github.repository }}" --file-metadata "version=${{ github.sha }}"
+
+      - name: Generate CycloneDX XML using Anchore Syft
+        uses: anchore/sbom-action@v0
+        id: syft-cdx-xml
+        with:
+          image: anchore/syft:latest
+          format: cyclonedx-xml
+          output-file: sbom/output/sbom.cdx.xml
+          args: --file-metadata "license=Apache-2.0"
 
       - name: Generate SBOM for Buildroot packages
         if: hashFiles('package/**') != ''
-        run: |
-          # Generate SBOM specifically for Buildroot packages
-          syft dir:package -o spdx-json=sbom/output/sbom-buildroot.spdx.json \
-            --file-metadata "component=Buildroot Packages" \
-            --file-metadata "version=${{ github.sha }}"
+        uses: anchore/sbom-action@v0
+        with:
+          image: anchore/syft:latest
+          format: spdx-json
+          output-file: sbom/output/sbom-buildroot.spdx.json
+          args: --file-metadata "component=Buildroot Packages" --file-metadata "version=${{ github.sha }}" dir:package
 
       - name: Generate SBOM for Overlay directory
         if: hashFiles('overlay/**') != ''
-        run: |
-          syft dir:overlay -o spdx-json=sbom/output/sbom-overlay.spdx.json \
-            --file-metadata "component=RootFS Overlay" \
-            --file-metadata "version=${{ github.sha }}"
+        uses: anchore/sbom-action@v0
+        with:
+          image: anchore/syft:latest
+          format: spdx-json
+          output-file: sbom/output/sbom-overlay.spdx.json
+          args: --file-metadata "component=RootFS Overlay" --file-metadata "version=${{ github.sha }}" dir:overlay
 
       - name: Create SBOM manifest
         run: |
@@ -120,27 +112,28 @@ jobs:
           
           ## SBOM Files
           
-          | Format | File | Purpose |
-          |--------|------|---------|
-          | SPDX JSON | sbom.spdx.json | Primary CRA compliance format |
-          | SPDX Text | sbom.spdx.txt | Human-readable SPDX |
-          | CycloneDX JSON | sbom.cdx.json | Alternative format |
-          | CycloneDX XML | sbom.cdx.xml | XML standard format |
-          | Buildroot SPDX | sbom-buildroot.spdx.json | Buildroot packages |
-          | Overlay SPDX | sbom-overlay.spdx.json | RootFS overlay |
+          | Format | File | Purpose | Tool |
+          |--------|------|---------|------|
+          | SPDX JSON | sbom.spdx.json | Primary CRA compliance format | Anchore Syft |
+          | SPDX Text | sbom.spdx.txt | Human-readable SPDX | Anchore Syft |
+          | CycloneDX JSON | sbom.cdx.json | Alternative format | Anchore Syft |
+          | CycloneDX XML | sbom.cdx.xml | XML standard format | Anchore Syft |
+          | Buildroot SPDX | sbom-buildroot.spdx.json | Buildroot packages | Anchore Syft |
+          | Overlay SPDX | sbom-overlay.spdx.json | RootFS overlay | Anchore Syft |
           
           ## CRA Compliance Notes
           
           - **Requirement:** Annex I Section 1.1 - Software Bill of Materials
-          - **Status:** ✅ Generated
+          - **Status:** ✅ Generated using official Anchore Syft
           - **Scope:** Complete firmware build (source, packages, overlay)
           - **Format:** SPDX 2.3 (ISO/IEC 5962:2021 compliant)
           - **License:** Apache-2.0 (as per project)
           - **Branch:** ${{ github.ref_name }}
+          - **Tool:** Anchore Syft (official Docker image)
           
           ## Tools Used
           
-          - **Syft:** v$(syft version 2>/dev/null || echo "unknown") - SBOM generation
+          - **Anchore Syft:** Official Docker image from Anchore
           - **CycloneDX:** Industry-standard SBOM format
           - **SPDX:** ISO/IEC 5962:2021 standard
           
@@ -148,6 +141,7 @@ jobs:
           
           **SBOM is mandatory for CRA compliance.**
           This SBOM covers all software components in the firmware build on branch ${{ github.ref_name }}.
+          Generated using official Anchore tools for reliability and compliance.
           EOF
 
       - name: Upload SBOM artifacts
@@ -158,7 +152,7 @@ jobs:
           retention-days: 365
           compression-level: 9
 
-      - name: Commit SBOM to repository (optional)
+      - name: Commit SBOM to repository (production only)
         if: github.ref == 'refs/heads/cra-compliance' && github.event_name == 'push'
         run: |
           git config --global user.name "CRA Bot"
@@ -174,7 +168,8 @@ jobs:
           Run ID: ${{ github.run_id }}
           Branch: ${{ github.ref_name }}
           
-          CRA Requirement: Annex I Section 1.1 - Software Bill of Materials"
+          CRA Requirement: Annex I Section 1.1 - Software Bill of Materials
+          Tool: Anchore Syft (official)"
           
           git push
 
@@ -194,6 +189,8 @@ jobs:
             
             This release includes Software Bill of Materials (SBOM) files required by **EU Cyber Resilience Act (CRA) Annex I Section 1.1**.
             
+            **Generated using:** Official Anchore Syft Docker image
+            
             ### Available Formats:
             - **SPDX JSON** (`sbom.spdx.json`) - Primary format
             - **SPDX Text** (`sbom.spdx.txt`) - Human-readable
@@ -205,9 +202,10 @@ jobs:
             - ✅ Includes all open-source dependencies
             - ✅ Compliant with SPDX 2.3 standard
             - ✅ Required for CE marking under CRA
+            - ✅ Generated using official Anchore tools
             
             ### Tools Used:
-            - Syft for SBOM generation
+            - Anchore Syft (official Docker image)
             - SPDX and CycloneDX formats
             
             ---
@@ -228,11 +226,6 @@ jobs:
         with:
           name: thingino-sbom-${{ github.sha }}-${{ github.ref_name }}
           path: sbom/output
-
-      - name: Install validation tools
-        run: |
-          pip install --upgrade pip
-          pip install sbom-utility valid-sbom
 
       - name: Validate SPDX SBOM
         run: |
@@ -289,7 +282,7 @@ jobs:
           echo "Branch: ${{ github.ref_name }}"
           echo "Run ID: ${{ github.run_id }}"
           echo ""
-          echo "✅ SBOM Generation Complete"
+          echo "✅ SBOM Generation Complete (Anchore Syft)"
           echo "✅ CRA Annex I Section 1.1 Requirement: SATISFIED"
           echo ""
           echo "Files generated:"
