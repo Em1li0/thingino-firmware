@@ -3,6 +3,7 @@ name: CRA Upstream Sync
 # Synchronizes with upstream repository
 # Uses Option B: Manual conflict resolution (no -X flag)
 # This ensures CRA compliance changes are NEVER silently overwritten
+# 3-Stage Workflow: cra-compliance-dev -> cra-compliance-staging -> cra-compliance
 
 on:
   schedule:
@@ -43,8 +44,9 @@ jobs:
           **Merge Strategy:** Option B (Manual Conflict Resolution)
           - Conflicts require manual resolution
           - CRA compliance changes are protected from silent overwrite
+          - Follows 3-stage workflow: dev -> staging -> prod
           
-          **Action Required:** If this PR has conflicts, they must be resolved manually."
+          **Action Required:** If this PR has conflicts, they must be resolved manually before merging."
           branch: "cra-sync-$(date +%Y%m%d)"
           base: cra-compliance
           delete-branch: true

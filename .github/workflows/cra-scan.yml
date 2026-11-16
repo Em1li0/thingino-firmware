@@ -2,16 +2,17 @@ name: CRA Vulnerability Management
 
 # CRA Compliance: Article 11 + Annex I Section 2.3
 # Mandatory vulnerability identification and handling throughout product lifecycle
+# 3-Stage Workflow: cra-compliance-dev -> cra-compliance-staging -> cra-compliance
 
 on:
   push:
-    branches: [ cra-compliance, master ]
+    branches: [ cra-compliance, cra-compliance-dev, cra-compliance-staging, master ]
     paths-ignore:
       - '**.md'
       - '.github/workflows/cra-sync.yml'
       - '.github/workflows/cra-sbom.yml'
   pull_request:
-    branches: [ cra-compliance ]
+    branches: [ cra-compliance, cra-compliance-dev, cra-compliance-staging ]
   schedule:
     - cron: '0 0 * * 0'  # Weekly scan on Sundays
   workflow_dispatch:
@@ -141,6 +142,7 @@ jobs:
           echo "" >> vulnerability-report.md
           echo "**Scan Date:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> vulnerability-report.md
           echo "**Repository:** ${{ github.repository }}" >> vulnerability-report.md
+          echo "**Branch:** ${{ github.ref_name }}" >> vulnerability-report.md
           echo "**Commit:** ${{ github.sha }}" >> vulnerability-report.md
           echo "**Run ID:** ${{ github.run_id }}" >> vulnerability-report.md
           echo "" >> vulnerability-report.md
@@ -224,6 +226,7 @@ jobs:
                 body: `## Vulnerabilities Detected
 
 **Commit:** ${context.sha}
+**Branch:** ${context.ref}
 **Run:** ${context.runId}
 
 ### Scan Results
@@ -300,6 +303,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           **Workflow:** ${{ github.workflow }}
           **Run ID:** ${{ github.run_id }}
           **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
           
           ## 🎯 CRA Requirements Met
           
@@ -308,7 +312,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           | **Vulnerability Identification** | ✅ Implemented | Trivy + Grype scans |
           | **SCA (Software Composition Analysis)** | ✅ Implemented | Dependency scanning |
           | **All Severity Levels** | ✅ Implemented | CRITICAL, HIGH, MEDIUM, LOW |
-          | **Lifecycle Coverage** | ✅ Implemented | Push, PR, Schedule triggers |
+          | **Lifecycle Coverage** | ✅ Implemented | Dev, Staging, Prod branches |
           | **Audit Trail** | ✅ Implemented | 365-day artifact retention |
           | **Reporting** | ✅ Implemented | GitHub issues + SARIF uploads |
           
@@ -324,7 +328,7 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           2. **Prioritize remediation** based on severity and exploitability
           3. **Update SBOM** when dependencies change
           4. **Document remediation** in technical documentation
-          5. **Test fixes** before merging to main branches
+          5. **Test fixes** before merging to staging/production
           
           ## 📊 Scan Metadata
           
@@ -332,10 +336,11 @@ These vulnerabilities must be reviewed and addressed per **CRA Article 11** requ
           - **Scan Types:** Filesystem, Dependencies
           - **Artifact Retention:** 365 days
           - **Trigger:** ${{ github.event_name }}
+          - **Branch:** ${{ github.ref_name }}
           
           ---
           
-          *This report confirms CRA Article 11 compliance for vulnerability management.*
+          *This report confirms CRA Article 11 compliance for vulnerability management on branch ${{ github.ref_name }}.*
           EOF
 
       - name: Upload compliance report
